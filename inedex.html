@@ -1,14 +1,58 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Settings, Activity, Brain, Move, MessageCircle, Volume2, VolumeX, 
-  ChevronUp, ChevronDown, Hand, Sparkles, Youtube, Music,
+  ChevronUp, ChevronDown, Hand, Sparkles, Maximize, Minimize,
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, 
   ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight,
-  Clock, Link as LinkIcon, Check, AlertCircle
+  Clock, Check
 } from 'lucide-react';
 
-// --- 精準節拍引擎 (解決動畫不規律問題) ---
-// 使用 Date.now() 進行時間校正，解決 setInterval 的時間飄移
+// --- SVG 自動縮放文字組件 (核心解決方案) ---
+// 透過計算字元寬度來動態設定 ViewBox，確保文字永遠不換行且填滿容器
+const ScalableText = ({ text, colorClass = "text-white", className = "", fontStyle = "sans" }) => {
+  // 估算文字寬度: 中文算 100，英文/數字/符號算 55
+  const estimatedWidth = text.split('').reduce((acc, char) => {
+    // 判斷是否為全形字元 (簡單判斷: unicode > 255)
+    return acc + (char.charCodeAt(0) > 255 ? 100 : 55);
+  }, 0);
+  
+  // 設定 ViewBox 寬度 (加上一點 padding 避免貼邊)
+  const viewBoxWidth = Math.max(estimatedWidth + 20, 200); 
+  const viewBoxHeight = 130; // 固定高度基準
+
+  return (
+    <div className={`w-full flex items-center justify-center ${className}`}>
+      <svg 
+        width="100%" 
+        height="100%" 
+        viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} 
+        preserveAspectRatio="xMidYMid meet"
+        className={`overflow-visible ${colorClass}`}
+        style={{ maxHeight: '100%', maxWidth: '100%' }}
+      >
+        <text 
+          x={viewBoxWidth / 2} 
+          y={viewBoxHeight / 2} 
+          textAnchor="middle" 
+          dominantBaseline="central" 
+          fontSize="100" 
+          fill="currentColor"
+          fontWeight="900"
+          style={{ 
+            fontFamily: fontStyle === 'mono' 
+              ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' 
+              : 'system-ui, -apple-system, sans-serif',
+            textShadow: '0px 4px 12px rgba(0,0,0,0.5)' // 自定義陰影增強可讀性
+          }}
+        >
+          {text}
+        </text>
+      </svg>
+    </div>
+  );
+};
+
+// --- 精準節拍引擎 ---
 const useMetronome = (bpm, isPlaying, onBeat) => {
   const timerRef = useRef(null);
   const expectedTimeRef = useRef(null);
@@ -22,10 +66,8 @@ const useMetronome = (bpm, isPlaying, onBeat) => {
         const now = Date.now();
         const drift = now - expectedTimeRef.current;
         
-        // 執行節拍動作
         onBeat();
 
-        // 計算下一拍的預期時間，並扣除飄移量
         expectedTimeRef.current += interval;
         const nextTickDelay = Math.max(0, interval - drift);
         
@@ -41,7 +83,7 @@ const useMetronome = (bpm, isPlaying, onBeat) => {
   }, [isPlaying, bpm, onBeat]);
 };
 
-// --- 音效引擎 (Web Audio API) ---
+// --- 音效引擎 ---
 const AudioEngine = () => {
   const audioCtxRef = useRef(null);
 
@@ -124,11 +166,11 @@ const getUpdateInterval = (mode, difficulty, speedMod) => {
 // --- 進度條組件 ---
 const ProgressBar = ({ durationMs, resetKey, colorClass = "bg-emerald-500" }) => {
   return (
-    <div className="w-2/3 mt-auto mb-4 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+    <div className="w-full max-w-xs md:max-w-md mt-auto mb-4 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
       <div className="text-slate-500 text-xs flex items-center gap-1">
         <Clock size={12} /> 下個指令
       </div>
-      <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
         <div 
           key={resetKey}
           className={`h-full ${colorClass} origin-left`} 
@@ -141,123 +183,66 @@ const ProgressBar = ({ durationMs, resetKey, colorClass = "bg-emerald-500" }) =>
   );
 };
 
-// --- YouTube 播放器組件 (支援自訂連結) ---
-const YoutubePlayer = ({ isPlaying, videoId, onIdChange }) => {
-  const [inputUrl, setInputUrl] = useState('');
-  const [showInput, setShowInput] = useState(false);
-
-  // 解析 YouTube URL
-  const handleUrlChange = (e) => {
-    const url = e.target.value;
-    setInputUrl(url);
-    
-    // 簡單的 ID 提取正則
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-
-    if (match && match[2].length === 11) {
-      onIdChange(match[2]);
-      setShowInput(false);
-      setInputUrl('');
-    }
-  };
-
-  return (
-    <div className="w-full mb-4 animate-in fade-in slide-in-from-top-4 relative group">
-      {/* 影片區域 */}
-      {isPlaying && videoId ? (
-        <div className="w-full aspect-video rounded-lg overflow-hidden shadow-2xl border border-slate-700 bg-black">
-          <iframe 
-            width="100%" 
-            height="100%" 
-            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&loop=1&playlist=${videoId}&mute=0`} 
-            title="Super Jogging Music" 
-            frameBorder="0" 
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-            allowFullScreen
-          ></iframe>
-        </div>
-      ) : (
-        <div className="w-full aspect-video bg-slate-800 rounded-lg flex items-center justify-center text-slate-500">
-           {isPlaying ? "載入中..." : "暫停中"}
-        </div>
-      )}
-
-      {/* 更改連結按鈕 (浮動) */}
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button 
-          onClick={() => setShowInput(!showInput)}
-          className="bg-slate-900/80 text-white text-xs px-3 py-1 rounded-full flex items-center gap-1 hover:bg-emerald-600 backdrop-blur-sm"
-        >
-          <LinkIcon size={12} /> 換歌
-        </button>
-      </div>
-
-      {/* 輸入框 */}
-      {showInput && (
-        <div className="absolute top-12 left-0 right-0 p-2 bg-slate-800/90 backdrop-blur rounded-lg z-20 border border-slate-600 shadow-xl mx-4">
-          <div className="text-xs text-slate-300 mb-1">貼上 YouTube 連結:</div>
-          <input 
-            type="text" 
-            placeholder="https://youtu.be/..." 
-            className="w-full bg-slate-900 text-white text-sm p-2 rounded border border-slate-600 focus:border-emerald-500 outline-none"
-            value={inputUrl}
-            onChange={handleUrlChange}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-
 export default function SuperJoggingApp() {
   // --- 狀態管理 ---
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(180);
   const [mode, setMode] = useState('math'); 
   const [isMuted, setIsMuted] = useState(false);
-  const [useYoutube, setUseYoutube] = useState(false); 
-  const [youtubeId, setYoutubeId] = useState('ESg5C6GJApE'); // 預設 ID
-  
-  // 設定
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
   const [difficulty, setDifficulty] = useState('normal'); 
   const [speedMod, setSpeedMod] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
 
-  // 遊戲即時狀態
   const [beatCount, setBeatCount] = useState(0);
   const [mathProblem, setMathProblem] = useState("準備開始");
-  
   const [reactionLeft, setReactionLeft] = useState({ direction: DIRECTIONS[2], color: 'green' });
   const [reactionRight, setReactionRight] = useState({ direction: DIRECTIONS[3], color: 'green' });
-  
   const [topic, setTopic] = useState("準備開始");
   const [bodyMove, setBodyMove] = useState(UPPER_BODY_MOVES[0]);
 
-  // 音效引擎
   const audioEngine = useRef(AudioEngine());
+
+  // --- 全螢幕控制 ---
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => {
+        setIsFullScreen(true);
+      }).catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullScreen(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullScreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullScreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullScreenChange);
+  }, []);
 
   // --- 使用自定義 Metronome Hook (防飄移) ---
   useMetronome(bpm, isPlaying, () => {
-    // 每一拍執行一次
     setBeatCount(prev => prev + 1);
     if (!isMuted) {
       audioEngine.current.playBeep(1000, 0.08); 
     }
   });
 
-  // 當模式或難度改變時，重置 BeatCount
   useEffect(() => {
     setBeatCount(0);
   }, [mode, difficulty, speedMod]);
 
-  // --- 遊戲內容更新邏輯 ---
   useEffect(() => {
     if (!isPlaying) return;
-
     const interval = getUpdateInterval(mode, difficulty, speedMod);
-
-    // 確保只在間隔點更新
     if (beatCount > 0 && beatCount % interval === 0) {
       updateGameContent();
     }
@@ -265,24 +250,14 @@ export default function SuperJoggingApp() {
 
   const updateGameContent = () => {
     switch (mode) {
-      case 'math':
-        generateMathProblem();
-        break;
-      case 'arrow':
-        generateReaction();
-        break;
-      case 'rule3':
-        generateTopic();
-        break;
-      case 'body':
-        generateBodyMove();
-        break;
-      default:
-        break;
+      case 'math': generateMathProblem(); break;
+      case 'arrow': generateReaction(); break;
+      case 'rule3': generateTopic(); break;
+      case 'body': generateBodyMove(); break;
+      default: break;
     }
   };
 
-  // --- 生成邏輯 ---
   const generateMathProblem = () => {
     const ops = ['+', '-', '×'];
     let maxNum = difficulty === 'hard' ? 20 : (difficulty === 'easy' ? 5 : 10);
@@ -329,26 +304,18 @@ export default function SuperJoggingApp() {
   const currentDurationMs = currentIntervalBeats * (60000 / bpm);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans flex flex-col items-center overflow-hidden">
+    <div className={`min-h-screen bg-slate-900 text-white font-sans flex flex-col items-center overflow-hidden transition-all duration-300 ${isFullScreen ? 'p-0' : ''}`}>
       
       {/* 頂部 Header */}
-      <header className="w-full max-w-md p-4 flex justify-between items-center bg-slate-800 shadow-lg z-10">
+      <header className={`w-full ${isFullScreen ? 'max-w-6xl' : 'max-w-md'} p-4 flex justify-between items-center bg-slate-800 shadow-lg z-30 transition-all duration-500`}>
         <div className="flex items-center gap-2">
           <Activity className="text-emerald-400" />
-          <h1 className="text-xl font-bold">超慢跑大師</h1>
+          <h1 className="text-xl font-bold whitespace-nowrap">超慢跑大師</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={() => {
-              setUseYoutube(!useYoutube);
-              if (!useYoutube) setIsMuted(true); 
-            }} 
-            className={`p-2 rounded-full transition-colors ${useYoutube ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-400'}`}
-            title="Youtube 音樂模式"
-          >
-            {useYoutube ? <Youtube size={20} /> : <Music size={20} />}
+          <button onClick={toggleFullScreen} className="p-2 bg-slate-700 rounded-full hover:bg-slate-600 transition-colors" title="全螢幕模式">
+            {isFullScreen ? <Minimize size={20} /> : <Maximize size={20} />}
           </button>
-          
           <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-slate-700 rounded-full hover:bg-slate-600">
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
@@ -360,42 +327,38 @@ export default function SuperJoggingApp() {
 
       {/* 設定面板 */}
       {showSettings && (
-        <div className="w-full max-w-md bg-slate-800 p-4 border-b border-slate-700 animate-in slide-in-from-top-2 relative z-30">
-          <div className="space-y-4">
-            <div>
-              <label className="flex justify-between text-sm text-slate-400 mb-1">
-                <span>節奏速度 (BPM)</span>
-                <span className="text-emerald-400 font-bold">{bpm}</span>
-              </label>
-              <input 
-                type="range" min="120" max="200" step="5" 
-                value={bpm} onChange={(e) => setBpm(Number(e.target.value))}
-                className="w-full accent-emerald-500 h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+        <div className="absolute top-16 z-40 w-full max-w-md px-4">
+          <div className="bg-slate-800 p-4 border border-slate-700 rounded-xl shadow-2xl animate-in slide-in-from-top-2">
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm text-slate-400 mb-1">難易度</label>
-                <select 
-                  value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
-                  className="w-full bg-slate-700 text-white rounded p-2 text-sm border border-slate-600 focus:border-emerald-500 outline-none"
-                >
-                  <option value="easy">簡單</option>
-                  <option value="normal">一般</option>
-                  <option value="hard">困難</option>
-                </select>
+                <label className="flex justify-between text-sm text-slate-400 mb-1">
+                  <span>節奏速度 (BPM)</span>
+                  <span className="text-emerald-400 font-bold">{bpm}</span>
+                </label>
+                <input 
+                  type="range" min="120" max="200" step="5" 
+                  value={bpm} onChange={(e) => setBpm(Number(e.target.value))}
+                  className="w-full accent-emerald-500 h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer"
+                />
               </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">動畫速度</label>
-                <select 
-                  value={speedMod} onChange={(e) => setSpeedMod(Number(e.target.value))}
-                  className="w-full bg-slate-700 text-white rounded p-2 text-sm border border-slate-600 focus:border-emerald-500 outline-none"
-                >
-                  <option value="0.5">慢 (0.5x)</option>
-                  <option value="1">正常 (1.0x)</option>
-                  <option value="1.5">快 (1.5x)</option>
-                  <option value="2">超快 (2.0x)</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">難易度</label>
+                  <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className="w-full bg-slate-700 text-white rounded p-2 text-sm border border-slate-600 focus:border-emerald-500 outline-none">
+                    <option value="easy">簡單</option>
+                    <option value="normal">一般</option>
+                    <option value="hard">困難</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">動畫速度</label>
+                  <select value={speedMod} onChange={(e) => setSpeedMod(Number(e.target.value))} className="w-full bg-slate-700 text-white rounded p-2 text-sm border border-slate-600 focus:border-emerald-500 outline-none">
+                    <option value="0.5">慢 (0.5x)</option>
+                    <option value="1">正常 (1.0x)</option>
+                    <option value="1.5">快 (1.5x)</option>
+                    <option value="2">超快 (2.0x)</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -403,42 +366,25 @@ export default function SuperJoggingApp() {
       )}
 
       {/* 主顯示區 */}
-      <main className="flex-1 w-full max-w-md relative flex flex-col bg-slate-900">
+      <main className={`flex-1 w-full flex flex-col bg-slate-900 transition-all duration-500 ${isFullScreen ? 'max-w-6xl' : 'max-w-md'}`}>
         
         {/* 節拍視覺指示器 */}
-        <div className="flex h-2 w-full">
+        <div className="flex h-2 w-full mt-2 rounded-full overflow-hidden mx-4 shrink-0 max-w-[95%] self-center">
           {[...Array(4)].map((_, i) => (
             <div 
               key={i} 
-              className={`flex-1 transition-all duration-100 ${
-                beatCount % 4 === i 
-                  ? 'bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.8)]' 
-                  : 'bg-slate-800'
-              }`} 
+              className={`flex-1 transition-all duration-100 ${beatCount % 4 === i ? 'bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.8)]' : 'bg-slate-800'}`} 
             />
           ))}
         </div>
 
         {/* 遊戲內容區 */}
-        <div className="flex-1 flex flex-col items-center relative p-4 overflow-hidden">
+        <div className="flex-1 flex flex-col items-center relative p-4 overflow-hidden min-h-0 justify-center">
           
-          {/* Youtube 播放器 */}
-          {useYoutube && (
-            <YoutubePlayer 
-              isPlaying={isPlaying} 
-              videoId={youtubeId} 
-              onIdChange={setYoutubeId} 
-            />
-          )}
-
-          {/* 播放/暫停 遮罩 */}
           {!isPlaying && (
-            <div className="absolute inset-0 z-20 bg-slate-900/80 flex items-center justify-center backdrop-blur-sm">
-              <button 
-                onClick={togglePlay}
-                className="group relative flex items-center justify-center w-32 h-32 bg-emerald-500 rounded-full shadow-[0_0_40px_rgba(16,185,129,0.4)] hover:scale-105 transition-all"
-              >
-                <Play size={64} className="ml-2 text-white fill-white" />
+            <div className="absolute inset-0 z-20 bg-slate-900/80 flex items-center justify-center backdrop-blur-sm rounded-xl">
+              <button onClick={togglePlay} className="group relative flex items-center justify-center w-32 h-32 md:w-48 md:h-48 bg-emerald-500 rounded-full shadow-[0_0_40px_rgba(16,185,129,0.4)] hover:scale-105 transition-all">
+                <Play className="ml-2 text-white fill-white w-16 h-16 md:w-24 md:h-24" />
                 <div className="absolute inset-0 rounded-full border-4 border-emerald-300 opacity-30 animate-ping"></div>
               </button>
             </div>
@@ -447,29 +393,28 @@ export default function SuperJoggingApp() {
           {/* 核心內容 */}
           <div className="flex-1 flex items-center justify-center w-full min-h-0">
             
-            {/* 數學模式 */}
+            {/* 數學模式 - 使用 ScalableText */}
             {mode === 'math' && (
-              <div className="text-center animate-in zoom-in duration-300">
-                <div className="text-slate-400 text-lg mb-4 font-medium tracking-widest">快速心算</div>
-                <div className="text-5xl sm:text-7xl font-black text-white drop-shadow-2xl font-mono tracking-tighter">
-                  {mathProblem}
+              <div className="text-center animate-in zoom-in duration-300 flex flex-col items-center justify-center h-full w-full px-4">
+                <div className="text-slate-400 text-lg md:text-2xl mb-4 font-medium tracking-widest">快速心算</div>
+                {/* 容器高度設為彈性，確保文字有空間展開 */}
+                <div className="flex-1 w-full max-h-[40vh] md:max-h-[50vh] flex items-center">
+                  <ScalableText text={mathProblem} fontStyle="mono" />
                 </div>
-                <div className="mt-8 text-emerald-400 text-xl font-bold animate-pulse">
+                <div className="mt-8 md:mt-12 text-emerald-400 text-xl md:text-4xl font-bold animate-pulse">
                   = ?
                 </div>
               </div>
             )}
 
-            {/* 反應模式 (雙手) */}
+            {/* 反應模式 */}
             {mode === 'arrow' && (
-              <div className="w-full h-full flex flex-col gap-2">
-                <div className="flex-1 flex gap-2 w-full">
-                  {/* 左手 */}
-                  <ReactionBlock data={reactionLeft} label="左手" />
-                  {/* 右手 */}
-                  <ReactionBlock data={reactionRight} label="右手" />
+              <div className="w-full h-full flex flex-col gap-4 md:gap-8 justify-center py-4">
+                <div className="flex-1 flex gap-4 w-full items-stretch">
+                  <ReactionBlock data={reactionLeft} label="左手" isFullScreen={isFullScreen} />
+                  <ReactionBlock data={reactionRight} label="右手" isFullScreen={isFullScreen} />
                 </div>
-                <div className="text-center text-slate-500 text-xs mt-1">
+                <div className="text-center text-slate-500 text-sm md:text-xl mt-1">
                   綠色同向 • 紅色反向
                 </div>
               </div>
@@ -477,33 +422,36 @@ export default function SuperJoggingApp() {
 
             {/* 聯想模式 */}
             {mode === 'rule3' && (
-              <div className="text-center w-full">
-                <div className="text-slate-400 text-lg mb-6 font-medium">請說出 3 個相關詞彙</div>
-                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-2xl shadow-2xl transform transition-all duration-300">
-                    <div className="text-3xl sm:text-5xl font-bold text-white break-keep">{topic}</div>
+              <div className="text-center w-full flex flex-col items-center justify-center h-full">
+                <div className="text-slate-400 text-lg md:text-2xl mb-6 md:mb-10 font-medium">請說出 3 個相關詞彙</div>
+                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-8 md:p-16 rounded-3xl shadow-2xl transform transition-all duration-300 w-full max-w-4xl flex items-center justify-center">
+                    <div className="flex-1 w-full flex items-center justify-center">
+                      <ScalableText text={topic} />
+                    </div>
                 </div>
               </div>
             )}
 
-            {/* 上肢模式 */}
+            {/* 上肢模式 - 使用 ScalableText */}
             {mode === 'body' && (
               <div className="text-center w-full h-full flex flex-col justify-center">
-                <div className="text-emerald-400 text-xl mb-4 font-bold flex justify-center items-center gap-2">
-                  <Sparkles className="animate-pulse" /> 動作指令
+                <div className="text-emerald-400 text-xl md:text-3xl mb-4 font-bold flex justify-center items-center gap-2">
+                  <Sparkles className="animate-pulse w-6 h-6 md:w-10 md:h-10" /> 動作指令
                 </div>
-                <div key={bodyMove} className="relative py-4 sm:py-10">
-                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl sm:text-6xl font-black text-slate-800 opacity-50 blur-sm whitespace-nowrap select-none">
-                    {bodyMove}
+                <div className="relative flex-1 w-full flex items-center justify-center">
+                  {/* 背景浮水印 (低透明度) */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-10 blur-sm pointer-events-none">
+                     <ScalableText text={bodyMove} colorClass="text-slate-500" />
                   </div>
-                  <div className="relative text-4xl sm:text-6xl font-black text-white leading-tight animate-in zoom-in slide-in-from-bottom-4 duration-700 whitespace-pre-wrap drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
-                    {bodyMove}
+                  {/* 前景主文字 */}
+                  <div className="w-full h-full max-h-[60vh] flex items-center z-10 animate-in zoom-in slide-in-from-bottom-4 duration-700">
+                    <ScalableText text={bodyMove} />
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* 進度條 */}
           {isPlaying && (
             <ProgressBar 
               durationMs={currentDurationMs} 
@@ -516,31 +464,30 @@ export default function SuperJoggingApp() {
               }
             />
           )}
-
         </div>
       </main>
 
       {/* 底部導航 */}
-      <nav className="w-full max-w-md bg-slate-800 border-t border-slate-700 p-2">
+      <nav className={`w-full ${isFullScreen ? 'max-w-6xl' : 'max-w-md'} bg-slate-800 border-t border-slate-700 p-2 z-30 transition-all duration-500`}>
         <div className="grid grid-cols-4 gap-2">
-          <ModeButton active={mode === 'math'} onClick={() => setMode('math')} icon={<Brain size={24} />} label="數學" color="text-blue-400" />
-          <ModeButton active={mode === 'arrow'} onClick={() => setMode('arrow')} icon={<Move size={24} />} label="反應" color="text-orange-400" />
-          <ModeButton active={mode === 'rule3'} onClick={() => setMode('rule3')} icon={<MessageCircle size={24} />} label="聯想" color="text-purple-400" />
-          <ModeButton active={mode === 'body'} onClick={() => setMode('body')} icon={<Activity size={24} />} label="上肢" color="text-yellow-400" />
+          <ModeButton active={mode === 'math'} onClick={() => setMode('math')} icon={<Brain className="w-6 h-6 md:w-8 md:h-8" />} label="數學" color="text-blue-400" />
+          <ModeButton active={mode === 'arrow'} onClick={() => setMode('arrow')} icon={<Move className="w-6 h-6 md:w-8 md:h-8" />} label="反應" color="text-orange-400" />
+          <ModeButton active={mode === 'rule3'} onClick={() => setMode('rule3')} icon={<MessageCircle className="w-6 h-6 md:w-8 md:h-8" />} label="聯想" color="text-purple-400" />
+          <ModeButton active={mode === 'body'} onClick={() => setMode('body')} icon={<Activity className="w-6 h-6 md:w-8 md:h-8" />} label="上肢" color="text-yellow-400" />
         </div>
       </nav>
 
       {/* BPM 控制 */}
-      <div className="w-full max-w-md bg-slate-900 pb-safe p-4 flex justify-center items-center gap-6 border-t border-slate-800">
-         <button onClick={() => setBpm(b => Math.max(120, b - 5))} className="p-3 bg-slate-800 rounded-full active:bg-slate-700">
-            <ChevronDown />
+      <div className={`w-full ${isFullScreen ? 'max-w-6xl' : 'max-w-md'} bg-slate-900 pb-safe p-4 flex justify-center items-center gap-6 border-t border-slate-800 z-30 transition-all duration-500`}>
+         <button onClick={() => setBpm(b => Math.max(120, b - 5))} className="p-3 bg-slate-800 rounded-full active:bg-slate-700 hover:bg-slate-700">
+            <ChevronDown className="w-6 h-6 md:w-8 md:h-8" />
          </button>
          <div className="text-center">
-            <div className="text-4xl font-black text-white">{bpm}</div>
-            <div className="text-xs text-slate-500 uppercase tracking-widest">BPM</div>
+            <div className="text-4xl md:text-6xl font-black text-white tabular-nums">{bpm}</div>
+            <div className="text-xs md:text-sm text-slate-500 uppercase tracking-widest">BPM</div>
          </div>
-         <button onClick={() => setBpm(b => Math.min(220, b + 5))} className="p-3 bg-slate-800 rounded-full active:bg-slate-700">
-            <ChevronUp />
+         <button onClick={() => setBpm(b => Math.min(220, b + 5))} className="p-3 bg-slate-800 rounded-full active:bg-slate-700 hover:bg-slate-700">
+            <ChevronUp className="w-6 h-6 md:w-8 md:h-8" />
          </button>
       </div>
       
@@ -551,21 +498,19 @@ export default function SuperJoggingApp() {
   );
 }
 
-// 輔助組件：反應方塊
-function ReactionBlock({ data, label }) {
+function ReactionBlock({ data, label, isFullScreen }) {
   const isGreen = data.color === 'green';
   return (
-    <div className={`flex-1 flex flex-col items-center justify-center rounded-xl border-4 transition-all duration-300 ${
+    <div className={`flex-1 flex flex-col items-center justify-center rounded-2xl border-4 transition-all duration-300 ${
       isGreen ? 'bg-green-900/20 border-green-500/50' : 'bg-red-900/20 border-red-500/50'
     }`}>
-      <div className="text-slate-400 text-xs font-bold mb-1 uppercase tracking-widest">{label}</div>
-      <div className="p-3 bg-slate-800 rounded-full mb-2 shadow-lg">
+      <div className="text-slate-400 text-sm md:text-xl font-bold mb-2 md:mb-4 uppercase tracking-widest">{label}</div>
+      <div className={`p-4 md:p-8 bg-slate-800 rounded-full mb-4 shadow-lg transition-all ${isFullScreen ? 'scale-110' : ''}`}>
         {React.createElement(data.direction.icon, {
-          size: 48,
-          className: isGreen ? 'text-green-400' : 'text-red-400'
+          className: `${isGreen ? 'text-green-400' : 'text-red-400'} w-12 h-12 md:w-24 md:h-24`
         })}
       </div>
-      <div className={`text-lg font-black ${isGreen ? 'text-green-400' : 'text-red-400'}`}>
+      <div className={`text-2xl md:text-5xl font-black ${isGreen ? 'text-green-400' : 'text-red-400'}`}>
         {isGreen ? '同向' : '反向'}
       </div>
     </div>
@@ -574,18 +519,9 @@ function ReactionBlock({ data, label }) {
 
 function ModeButton({ active, onClick, icon, label, color }) {
   return (
-    <button 
-      onClick={onClick}
-      className={`flex flex-col items-center justify-center p-2 rounded-lg transition-all duration-200 ${
-        active ? 'bg-slate-700 shadow-inner translate-y-1' : 'hover:bg-slate-700/50'
-      }`}
-    >
-      <div className={`mb-1 ${active ? color : 'text-slate-400'}`}>
-        {icon}
-      </div>
-      <span className={`text-xs font-medium ${active ? 'text-white' : 'text-slate-500'}`}>
-        {label}
-      </span>
+    <button onClick={onClick} className={`flex flex-col items-center justify-center p-2 md:p-4 rounded-xl transition-all duration-200 ${active ? 'bg-slate-700 shadow-inner translate-y-1' : 'hover:bg-slate-700/50'}`}>
+      <div className={`mb-1 ${active ? color : 'text-slate-400'}`}>{icon}</div>
+      <span className={`text-xs md:text-base font-medium ${active ? 'text-white' : 'text-slate-500'}`}>{label}</span>
     </button>
   );
 }
